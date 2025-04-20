@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>入退出管理システム</title>
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="tab-bar">
+    <button class="tab active" data-tab="main">📋 メイン</button>
+    <button class="tab" data-tab="log">📑 ログ</button>
+    <button class="tab" data-tab="settings">⚙ 設定</button>
+  </div>
+
+  <div class="tab-content" id="main">
+    <h1>接続状態</h1>
+    <div id="status" class="status">起動中</div>
+    <h2>アクティブユーザー</h2>
+    <div id="active-users" class="active-users">ユーザー情報を取得中...</div>
+  </div>
+  
+  <div class="tab-content hidden" id="log">
+    <h1>ログ一覧</h1>
+    <div id="log-list" class="log-list">ログを取得中...</div>
+  </div>
+  
+  <div class="tab-content hidden" id="settings">
+    <h1>設定</h1>
+    <button id="start-connection" class="btn">接続開始</button>
+    <button id="stop-connection" class="btn">接続終了</button>
+    <button id="add-user" class="btn">ユーザー追加</button>
+    <button id="remove-user" class="btn">ユーザー削除</button>
+  </div>
+
+  <div id="modal" class="hidden">
+    <div id="modal-content" class="modal-content"></div>
+  </div>
+
+  <script src="../renderer.js"></script>
+</body>
+</html>

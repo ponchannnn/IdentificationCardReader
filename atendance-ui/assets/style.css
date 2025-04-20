@@ -1,0 +1,181 @@
+body {
+    font-family: "Arial", sans-serif;
+    margin: 0;
+    background: #f4f4f4;
+    color: #333;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  
+  .tab-bar {
+    display: flex;
+    background: #005bac;
+    color: white;
+  }
+  
+  .tab {
+    flex: 1;
+    padding: 1em;
+    cursor: pointer;
+    background: #0074d9;
+    border: none;
+    color: white;
+    font-size: 1.2em;
+    text-align: center;
+  }
+  
+  .tab:hover {
+    background-color: #004f9f;
+  }
+
+  .tab.active {
+    background: #003f7f;
+  }
+  
+  .tab-content {
+    flex: 1;
+    padding: 2em;
+    overflow-y: auto;
+  }
+  
+  .tab-content#main {
+    display: block;
+  }
+  
+  .hidden {
+    display: none !important;
+  }
+
+  #active-users {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, 300px); /* 自動で列数を調整 */
+    gap: 16px; /* ボックス間のスペース */
+    padding: 16px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  }
+
+  .user-box {
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .user-box.in {
+    border-color: green;
+    color: green;
+  }
+  
+  .user-box.out {
+    border-color: red;
+    color: red;
+  }
+
+  .user-box.unknown {
+    background-color: #f0f0f0;
+    border-color: #ccc;
+    color: gray;
+  }
+
+  /* ユーザー名 */
+  .user-name {
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+
+  /* ユーザー情報 */
+  .user-info {
+    font-size: 0.9em;
+    color: #555;
+  }
+  
+  @keyframes fadeIn {
+    0% {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  
+  .fade-in {
+    animation: fadeIn 0.5s ease;
+  }
+  
+  h1 {
+    font-size: 2.5em;
+    color: #0074d9;
+  }
+  
+  #status {
+    font-size: 2em;
+    color: #999;
+    margin-top: 2em;
+    text-align: center;
+  }
+
+  .active-users, .log-list {
+    background: white;
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  
+  #modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+  }
+
+  #modal.hidden {
+    display: none;
+  }
+
+  #modal-content {
+    background: white;
+    padding: 20px;
+    border-radius: 5px;
+    text-align: center;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  }
+
+  #modal-close {
+    margin-top: 10px;
+  }
+
+  #active-users {
+    margin-top: 20px;
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 10px 20px;
+    margin: 10px;
+    font-size: 1em;
+    color: white;
+    background-color: #0074d9;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  
+  .btn:hover {
+    background-color: #005bac;
+  }

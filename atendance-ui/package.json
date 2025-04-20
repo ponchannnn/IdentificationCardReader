@@ -1,0 +1,15 @@
+{
+    "name": "identification-card-reader",
+    "version": "1.0.0",
+    "description": "入退出管理システム",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron ."
+    },
+    "author": "ponCHANNN",
+    "license": "MIT",
+    "dependencies": {
+        "electron": "^25.0.0",
+        "sqlite3": "^5.1.7"
+    }
+}

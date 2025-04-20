@@ -1,0 +1,10 @@
+node_modules/
+
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+atendance-ui/scripts/card_logs.db
