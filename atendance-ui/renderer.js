@@ -13,7 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const mainTabElement = document.getElementById('main-tab'); // メインタブの要素
   const removeUserButton = document.getElementById('remove-user-button'); // ユーザー削除ボタンの要素
 
-  let isWaitingForCard = false;
   let modalInterval = null;
   let modalTimeout = null;
   let activeUsers;
@@ -37,13 +36,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if(targetTab === 'main') {
         // メインタブが選択された場合の処理
-        isMainTab = true;
+        window.electronAPI.onisMainTab(true);
         activeInterval = setInterval(reloadActiveUsers, 1000);
       }
 
       // ログタブが選択された場合にデータを取得
       if (targetTab === 'log') {
-        isMainTab = false;
+        window.electronAPI.onisMainTab(false);
         const logListElement = document.getElementById('log-list');
         window.electronAPI.startWaitingForCard();
         toggleModal('カードをタッチしてください...', 5);
@@ -73,6 +72,9 @@ document.addEventListener('DOMContentLoaded', () => {
           console.error('Error fetching logs:', err);
           logListElement.textContent = 'ログの取得中にエラーが発生しました。';
         });
+
+      } else if (targetTab === "settings") {
+        window.electronAPI.onisMainTab(false);
       }
     });
   });
@@ -341,15 +343,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     statusElement.textContent = `${statusEmoji} ${statusText}`;
     statusElement.style.color = statusColor;
-  });
-
-  // メインタブが選択されているか確認
-  window.electronAPI.onIsMainTab((event, isMain) => {
-    if (isMain) {
-      mainTabElement.classList.add('active');
-    } else {
-      mainTabElement.classList.remove('active');
-    }
   });
 
   // 初回更新

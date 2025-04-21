@@ -48,7 +48,78 @@ function startTCPServer() {
         console.error('Error processing client data:', err);
       }
 
-      if (cardDataMode === 'auth-mode') {
+      if (cardDataMode === 'main-mode') {
+        isWaitingForCard = false;
+        // メインモード
+        if (userData && userData.student_number) {
+          try {
+            // ユーザーが存在するか確認
+            db.get(
+              `SELECT id FROM users WHERE student_number = ?`,
+              [userData.student_number],
+              (err, userRow) => {
+                if (err) {
+                  console.error('Error checking user existence:', err);
+                  mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
+                  return;
+                }
+
+                if (!userRow) {
+                  // ユーザーが存在しない場合
+                  console.log('User not found.');
+                  mainWindow.webContents.send('main-result', false, 'USER NOT FOUND');
+                  return;
+                }
+
+                const userId = userRow.id; // user_idを取得
+                const currentDate = new Date().toISOString().split('T')[0]; // 今日の日付を取得 (YYYY-MM-DD形式)
+                const startOfDay = `${currentDate} 00:00:00`; // 当日の開始時刻
+                const endOfDay = `${currentDate} 23:59:59`; // 当日の終了時刻
+
+                // その日の最新ログを取得
+                db.get(
+                  `SELECT mode, timestamp FROM attendance_logs
+                   WHERE user_id = ? AND timestamp >= ? AND timestamp <= ?
+                   ORDER BY timestamp DESC LIMIT 1`,
+                  [userId, startOfDay, endOfDay],
+                  (err, logRow) => {
+                    if (err) {
+                      console.error('Error fetching latest attendance log:', err);
+                      mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
+                      return;
+                    }
+
+                    let newMode = 'in'; // デフォルトはin
+                    if (logRow) {
+                      // 最新のログが存在する場合、modeを切り替える
+                      newMode = logRow.mode === 'in' ? 'out' : 'in';
+                    }
+
+                    // 新しいログを挿入
+                    db.run(
+                      `INSERT INTO attendance_logs (user_id, mode, timestamp)
+                       VALUES (?, ?, ?)`,
+                      [userId, newMode, new Date().toISOString()],
+                      (err) => {
+                        if (err) {
+                          console.error('Error saving attendance log to database:', err);
+                          mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
+                        } else {
+                          console.log(`Attendance log saved to database successfully with mode: ${newMode}`);
+                          mainWindow.webContents.send('main-result', true, newMode);
+                        }
+                      }
+                    );
+                  }
+                );
+              }
+            );
+          } catch (err) {
+            console.error('Error processing client data:', err);
+            mainWindow.webContents.send('main-result', false, 'UNKNOWN ERROR');
+          }
+        }
+      } else if (cardDataMode === 'auth-mode') {
         isWaitingForCard = false;
         // 認証モード
         if (userData && userData.student_number) {
@@ -429,12 +500,12 @@ ipcMain.handle('save-user', async (event, user) => {
   });
 });
 
-ipcMain.on('start-waiting-for-card', () => {
-  console.log('Waiting for card data...');
-  isWaitingForCard = true;
-});
-
-ipcMain.on('stop-waiting-for-card', () => {
-  console.log('Stopped waiting for card data.');
-  isWaitingForCard = false;
+ipcMain.on('is-main-tab', (event, isMainTab) => {
+  if (isMainTab) {
+    isWaitingForCard = true;
+    cardDataMode = "main-mode";
+  } else {
+    isWaitingForCard = false;
+    cardDataMode = null;
+  }
 });
