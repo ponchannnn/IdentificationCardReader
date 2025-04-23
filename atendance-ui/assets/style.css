@@ -6,6 +6,11 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    user-select: none;
+  }
+
+  ::-webkit-scrollbar {
+    display: none;
   }
   
   .tab-bar {
@@ -131,7 +136,7 @@ body {
     overflow-y: auto;
   }
   
-  #modal {
+  .modal {
     position: fixed;
     top: 0;
     left: 0;
@@ -141,14 +146,17 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
   }
 
-  #modal.hidden {
-    display: none;
+  .modal.show {
+    opacity: 1;
+    visibility: visible;
   }
 
-  #modal-content {
+  .modal-content {
     background: white;
     padding: 20px;
     border-radius: 5px;
@@ -156,8 +164,19 @@ body {
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
   }
 
-  #modal-close {
-    margin-top: 10px;
+  .modal.show .modal-content {
+    transform: scale(1);
+  }
+  
+
+  .modal-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
   }
 
   #active-users {

@@ -1,10 +1,18 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
-const { saveAttendanceLog } = require('./scripts/db'); // データベース保存用モジュール
+const { getUserIdByStudentNumber, 
+  getLatestAttendanceLogById,
+  getLatestAttendanceLog, 
+  getHasNoAttendanceLogToday,
+  saveAttendanceLog, 
+  saveUser, 
+  fetchActiveUsers, 
+  fetchActiveAllUsers,
+} = require('./scripts/db'); // データベース保存用モジュール
 const net = require('net');
 const sqlite3 = require('sqlite3').verbose(); // SQLite3モジュール
 const { spawn } = require('child_process'); // Pythonスクリプトを起動するために使用
-const { start } = require('repl');
+const { get } = require('http');
 const db = new sqlite3.Database('./scripts/card_logs.db', (err) => {
   if (err) {
     console.error('Error opening database:', err.message);
@@ -22,7 +30,7 @@ const RECONNECT_INTERVAL = 10000; // 再接続間隔（ミリ秒）
 let pythonProcess = null; // Pythonスクリプトのプロセス
 let connectionStatus = '未接続'; // 接続状態
 let isWaitingForCard = false; // カード待機状態
-let userData = null; // カードデータ
+let pyData = null; // カードデータ
 let cardDataMode = null;
 let isAuthrized = false; // 認証できたか
 let timeout = null; // タイムアウト用変数
@@ -30,168 +38,104 @@ let timeout = null; // タイムアウト用変数
 function startTCPServer() {
   server = net.createServer((socket) => {
     // クライアントからデータを受信
-    socket.on('data', (data) => {
+    socket.on('data', async (data) => {
       clearTimeout(timeout);
-      if (!isWaitingForCard) {
-        return;
-      }
       try {
         const parsedData = JSON.parse(data.toString());
-        userData = parsedData;
-        console.log('Received card data from client:', parsedData);
-
-        // レンダラープロセスにデータを送信
-        if (mainWindow) {
-          mainWindow.webContents.send('card-data', parsedData);
-        }
+        pyData = parsedData;
       } catch (err) {
         console.error('Error processing client data:', err);
       }
-
-      if (cardDataMode === 'main-mode') {
-        isWaitingForCard = false;
-        // メインモード
-        if (userData && userData.student_number) {
-          try {
-            // ユーザーが存在するか確認
-            db.get(
-              `SELECT id FROM users WHERE student_number = ?`,
-              [userData.student_number],
-              (err, userRow) => {
-                if (err) {
-                  console.error('Error checking user existence:', err);
-                  mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
-                  return;
-                }
-
-                if (!userRow) {
-                  // ユーザーが存在しない場合
-                  console.log('User not found.');
-                  mainWindow.webContents.send('main-result', false, 'USER NOT FOUND');
-                  return;
-                }
-
-                const userId = userRow.id; // user_idを取得
-                const currentDate = new Date().toISOString().split('T')[0]; // 今日の日付を取得 (YYYY-MM-DD形式)
-                const startOfDay = `${currentDate} 00:00:00`; // 当日の開始時刻
-                const endOfDay = `${currentDate} 23:59:59`; // 当日の終了時刻
-
-                // その日の最新ログを取得
-                db.get(
-                  `SELECT mode, timestamp FROM attendance_logs
-                   WHERE user_id = ? AND timestamp >= ? AND timestamp <= ?
-                   ORDER BY timestamp DESC LIMIT 1`,
-                  [userId, startOfDay, endOfDay],
-                  (err, logRow) => {
-                    if (err) {
-                      console.error('Error fetching latest attendance log:', err);
-                      mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
-                      return;
-                    }
-
-                    let newMode = 'in'; // デフォルトはin
-                    if (logRow) {
-                      // 最新のログが存在する場合、modeを切り替える
-                      newMode = logRow.mode === 'in' ? 'out' : 'in';
-                    }
-
-                    // 新しいログを挿入
-                    db.run(
-                      `INSERT INTO attendance_logs (user_id, mode, timestamp)
-                       VALUES (?, ?, ?)`,
-                      [userId, newMode, new Date().toISOString()],
-                      (err) => {
-                        if (err) {
-                          console.error('Error saving attendance log to database:', err);
-                          mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
-                        } else {
-                          console.log(`Attendance log saved to database successfully with mode: ${newMode}`);
-                          mainWindow.webContents.send('main-result', true, newMode);
-                        }
-                      }
-                    );
-                  }
-                );
+      if (isWaitingForCard && pyData.type == 'card') {
+        if (mainWindow && cardDataMode === 'main-mode') {
+          isWaitingForCard = false;
+          // メインモード
+          if (pyData && pyData.student_number) {
+            try {
+              const userRow = await getUserIdByStudentNumber(pyData.student_number);
+              if (!userRow) {
+                mainWindow.webContents.send('main-result', false, 'USER NOT FOUND');
+                return;
               }
-            );
-          } catch (err) {
-            console.error('Error processing client data:', err);
-            mainWindow.webContents.send('main-result', false, 'UNKNOWN ERROR');
+  
+              const userId = userRow.id;
+              const currentDate = new Date().toISOString().split('T')[0];
+              const startOfDay = `${currentDate} 00:07:00`;
+              const endOfDay = `${new Date(new Date(currentDate).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]} 06:59:59`;
+  
+              const logRow = await getLatestAttendanceLogById(userId, startOfDay, endOfDay);
+              const newMode = logRow && logRow.mode === 'in' ? 'out' : 'in';
+  
+              await saveAttendanceLog(userId, newMode);
+              mainWindow.webContents.send('main-result', true, {
+                student_number: pyData.student_number,
+                name_kanji: pyData.name_kanji,
+                name_kana: pyData.name_kana,
+                mode: newMode,
+              });
+            } catch (err) {
+              console.error('Error processing client data:', err);
+              mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
+            }
           }
-        }
-      } else if (cardDataMode === 'auth-mode') {
-        isWaitingForCard = false;
-        // 認証モード
-        if (userData && userData.student_number) {
-          try {
-            // データベースでユーザーを確認
-            db.get(
-              `SELECT * FROM users WHERE student_number = ?`,
-              [userData.student_number],
-              (err, row) => {
-                if (err) {
-                  console.error('Error querying database:', err);
-                  mainWindow.webContents.send('auth-result', false); // 認証失敗を通知
-                } else if (row) {
-                  mainWindow.webContents.send('auth-result', row); // 認証成功を通知
-                  isAuthrized = true;
-                } else {
-                  console.log('User is not authorized.');
-                  mainWindow.webContents.send('auth-result', false); // 認証失敗を通知
-                }
+          isWaitingForCard = true;
+        } else if (cardDataMode === 'auth-mode') {
+          isWaitingForCard = false;
+          // 認証モード
+          if (pyData && pyData.student_number) {
+            try {
+              const userRow = await getUserIdByStudentNumber(pyData.student_number);
+              if (!userRow) {
+                mainWindow.webContents.send('auth-result', false, 'USER NOT FOUND');
+                return;
               }
-            );
-          } catch (err) {
-            console.error('Error processing client data:', err);
+              mainWindow.webContents.send('auth-result', true, {
+                student_number: pyData.student_number,
+                name_kanji: pyData.name_kanji,
+              });
+            } catch (err) {
+              mainWindow.webContents.send('auth-result', false, 'DATABASE ERROR');
+            }
+            cardDataMode = null;
+            isWaitingForCard = false;
+            pyData = null;
+          }
+        } else if (cardDataMode === 'save-user') {
+          isWaitingForCard = false;
+          if (pyData && pyData.student_number) {
+            try {
+              const result = await saveUser(pyData); // db.jsのsaveUser関数を呼び出し
+              if (result) {
+                mainWindow.webContents.send('save-result', true, pyData); // 保存成功を通知
+              } else {
+                mainWindow.webContents.send('save-result', false, "Failed to save user"); // 保存失敗を通知
+              }
+            } catch (err) {
+              mainWindow.webContents.send('save-result', false, `Failed to save user: ${err.message || "Unknown error"}`); // 保存失敗を通知
+            }
           }
           cardDataMode = null;
           isWaitingForCard = false;
-          userData = null;
+          pyData = null;
         }
-      } else if (cardDataMode === 'save-user') {
-        
-        if (userData && userData.student_number) {
-          try {
-            // データベースにユーザーを保存
-            db.run(
-              `INSERT INTO users (student_number, name_kanji, name_kana, birthday, publication_date, expiry_date, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [
-                userData.student_number,
-                userData.name_kanji,
-                userData.name_kana,
-                userData.birthday,
-                userData.publication_date,
-                userData.expiry_date,
-                new Date().toISOString(),
-              ],
-              (err) => {
-                if (err) {
-                  mainWindow.webContents.send('save-result', false); // 保存失敗を通知
-                  console.error('Error saving user to database:', err);
-                } else {
-                  console.log('User saved to database successfully.');
-                  mainWindow.webContents.send('save-result', userData); // 保存成功を通知
-                }
-              }
-            );
-          } catch (err) {
-            console.error('Error processing client data:', err);
+      } else {
+        if (pyData.type == "error") {
+          if (pyData.message == "UNSUPPORTED TAG TYPE") {
+            mainWindow.webContents.send('show-modal', { type:pyData.type, message: pyData.message });
           }
         }
-        cardDataMode = null;
-        isWaitingForCard = false;
-        userData = null;
       }
     });
     
     // クライアント切断時の処理
-    socket.on('close', () => {
+    socket.on('close', (err) => {
       console.log('Client disconnected:', socket.remoteAddress);
       connections = connections.filter((conn) => conn !== socket);
       connectionStatus = '未接続';
       updateConnectionStatus();
-      handleReconnect(); // 再接続を試行
+      if (err) {
+        handleReconnect(); // 再接続を試行
+      }
     });
 
     // エラー処理
@@ -228,7 +172,6 @@ function startTCPServer() {
 
   // サーバー接続時の処理
   server.on('connection', (socket) => {
-    isWaitingForCard = false;
     connectionStatus = '稼働中';
     updateConnectionStatus();
   });
@@ -298,12 +241,39 @@ function updateConnectionStatus() {
   }
 }
 
-// メインか確認
-function isMainTab() {
-  if (mainWindow) {
-    mainWindow.webContents.send('is-main-tab', true);
+async function fetchAllActiveUsersWithStatus() {
+  const currentDate = new Date().toISOString().split('T')[0];
+  const startOfDay = `${currentDate} 00:07:00`;
+  const endOfDay = `${new Date(new Date(currentDate).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]} 06:59:59`;
+  try {
+    const todayActiveUsers = await getLatestAttendanceLog(startOfDay, endOfDay);
+    const noTodayActiveUsers = await getHasNoAttendanceLogToday(startOfDay, endOfDay);
+    const todayActiveUsersArray = todayActiveUsers ? [todayActiveUsers] : [];
+    const noTodayActiveUsersArray = noTodayActiveUsers || [];
+
+    const noTodayActiveUsersWithStatus = noTodayActiveUsersArray.map((user) => {
+      return {
+        ...user,
+        mode: 'out',
+      };
+    });
+    return [...todayActiveUsersArray, ...noTodayActiveUsersWithStatus];
+  } catch (err) {
+    console.error('Error fetching users with status:', err);
+    throw err;
   }
 }
+
+// メインか確認
+ipcMain.on('is-main-tab', (event, isMainTab) => {
+  if (isMainTab) {
+    isWaitingForCard = true;
+    cardDataMode = "main-mode";
+  } else {
+    isWaitingForCard = false;
+    cardDataMode = null;
+  }
+});
 
 // アプリケーションの初期化
 app.on('ready', () => {
@@ -312,11 +282,29 @@ app.on('ready', () => {
     mainWindow = new BrowserWindow({
       width: 800,
       height: 600,
+      // fullscreen: true,
+      // frame: false,
+      resizable: true,
+      alwaysOnTop: true,
+      // kiosk: true,
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'), // preloadスクリプトを指定
         contextIsolation: true, // 必須
         enableRemoteModule: false, // セキュリティ向上のため無効化
       },
+    });
+
+    globalShortcut.register('CommandOrControl+R', () => {
+      mainWindow.reload();
+    });
+
+    globalShortcut.register('CommandOrControl+Q', () => {
+      app.quit();
+    });
+
+    globalShortcut.register('CommandOrControl+Shift+R', () => {
+      app.relaunch();
+      app.quit();
     });
 
     // アプリのUIをロード
@@ -332,8 +320,8 @@ app.on('ready', () => {
 
     // アプリ終了時にサーバーとPythonスクリプトを閉じる
     app.on('before-quit', () => {
-      stopTCPServer();
       stopPythonScript();
+      stopTCPServer();
     });
   } catch (err) {
     console.error('Error during app initialization:', err);
@@ -348,15 +336,19 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.on('start-connection', () => {
-  console.log('Manual connection start requested.');
-  startTCPServer();
-  connectionStatus = '稼働中';
-  updateConnectionStatus();
+  if (server) {
+    server.close(() => {
+      console.log('Server closed. Restarting...');
+      startTCPServer();
+    });
+  } else {
+    startTCPServer();
+  }
 });
 
 ipcMain.on('stop-connection', () => {
-  console.log('Manual connection stop requested.');
   stopTCPServer();
+  startPythonScript();
   connectionStatus = '未接続';
   updateConnectionStatus();
 });
@@ -421,82 +413,15 @@ ipcMain.handle('fetch-logs', async () => {
   });
 });
 
-ipcMain.handle('fetch-active-users', async () => {
-  return new Promise((resolve, reject) => {
-    db.all( // 各ユーザーの最新の出席ログらしい by chatGPT
-      `SELECT u.student_number, u.name_kanji, u.name_kana, a.mode, a.timestamp
-       FROM users u
-       LEFT JOIN attendance_logs a
-         ON u.id = a.user_id
-       WHERE u.is_active = 1
-         AND a.timestamp = (
-           SELECT MAX(a2.timestamp)
-           FROM attendance_logs a2
-           WHERE a2.user_id = u.id
-         )
-       ORDER BY a.timestamp DESC`,
-      (err, rows) => {
-        if (err) {
-          console.error('Error fetching active users:', err);
-          reject(err);
-        } else {
-          resolve(rows);
-        }
-      }
-    );
-  });
-});
-
-ipcMain.handle('fetch-active-all-users', async () => {
-  return new Promise((resolve, reject) => {
-    db.all(
-      `SELECT u.student_number, u.name_kanji, u.name_kana
-       FROM users u
-       WHERE u.is_active = 1
-         AND NOT EXISTS (
-           SELECT 1
-           FROM attendance_logs a
-           WHERE a.user_id = u.id
-         )
-       ORDER BY u.student_number ASC`,
-      (err, rows) => {
-        if (err) {
-          console.error('Error fetching active users without logs:', err);
-          reject(err);
-        } else {
-          resolve(rows);
-        }
-      }
-    );
-  });
-});
-
-ipcMain.handle('save-user', async (event, user) => {
-  return new Promise((resolve, reject) => {
-    const {
-      student_number,
-      name_kanji,
-      name_kana,
-      birthday,
-      publication_date,
-      expiry_date,
-      created_at,
-    } = user;
-
-    db.run(
-      `INSERT INTO users (student_number, name_kanji, name_kana, birthday, publication_date, expiry_date, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [student_number, name_kanji, name_kana, birthday, publication_date, expiry_date, created_at],
-      function (err) {
-        if (err) {
-          console.error('Error saving user to database:', err);
-          reject(err);
-        } else {
-          console.log('User saved to database with ID:', this.lastID);
-          resolve({ success: true });
-        }
-      }
-    );
+ipcMain.handle('fetch-active-all-users-with-status', async () => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const rows = await fetchAllActiveUsersWithStatus();
+      resolve(rows);
+    } catch (err) {
+      console.error('Error fetching active users:', err);
+      reject(err);
+    }
   });
 });
 
@@ -507,5 +432,15 @@ ipcMain.on('is-main-tab', (event, isMainTab) => {
   } else {
     isWaitingForCard = false;
     cardDataMode = null;
+  }
+});
+
+ipcMain.on('cancel-mode', (event) => {
+  isWaitingForCard = false;
+  cardDataMode = null;
+  userData = null;
+  if (timeout) {
+    clearTimeout(timeout);
+    timeout = null;
   }
 });

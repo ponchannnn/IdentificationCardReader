@@ -7,16 +7,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const tabContents = document.querySelectorAll('.tab-content');
   const activeUsersElement = document.getElementById('active-users');
   const logListElement = document.getElementById('log-list');
-  const modalElement = document.getElementById('modal');
-  const modalContent = document.getElementById('modal-content');
   const statusElement = document.getElementById('status'); // 接続状態を表示する要素
-  const mainTabElement = document.getElementById('main-tab'); // メインタブの要素
-  const removeUserButton = document.getElementById('remove-user-button'); // ユーザー削除ボタンの要素
 
   let modalInterval = null;
-  let modalTimeout = null;
-  let activeUsers;
+  let knownUsers;
   let unknownUsersHTML = [];
+
+  window.electronAPI.onIsMainTab(true);
 
   // タブの切り替え処理
   tabs.forEach((tab) => {
@@ -35,16 +32,24 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById(targetTab).classList.remove('hidden');
 
       if(targetTab === 'main') {
-        // メインタブが選択された場合の処理
-        window.electronAPI.onisMainTab(true);
-        activeInterval = setInterval(reloadActiveUsers, 1000);
+        window.electronAPI.onIsMainTab(true);
+        updateActiveUsers().then((success) => {
+          if (success) {
+            // 成功した場合にインターバルを設定
+            if (activeInterval) {
+              clearInterval(activeInterval); // 既存のインターバルをクリア
+            }
+            activeInterval = setInterval(reloadActiveUsers, 1000);
+          }
+        }).catch(() => {
+          activeUsersElement.textContent = 'ユーザー情報の取得中にエラーが発生しました。'
+        });
       }
 
       // ログタブが選択された場合にデータを取得
       if (targetTab === 'log') {
-        window.electronAPI.onisMainTab(false);
+        window.electronAPI.onIsMainTab(false);
         const logListElement = document.getElementById('log-list');
-        window.electronAPI.startWaitingForCard();
         toggleModal('カードをタッチしてください...', 5);
         await waitForCard(5);
 
@@ -74,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
       } else if (targetTab === "settings") {
-        window.electronAPI.onisMainTab(false);
+        window.electronAPI.onIsMainTab(false);
       }
     });
   });
@@ -89,21 +94,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateActiveUsers() {
     // アクティブなユーザーを取得
-    return Promise.all([
-      window.electronAPI.fetchActiveUsers(),
-      window.electronAPI.fetchActiveAllUsers()
-    ])
-      .then(([fetchedActiveUsers, fetchedUnknownUsers]) => {
+    return window.electronAPI.fetchActiveAllUsers()
+      .then((fetchedActiveUsers) => {
         // アクティブなユーザーを表示
-        activeUsers = fetchedActiveUsers; // グローバル変数に保存
-        const activeUsersHTML = fetchedActiveUsers
+        knownUsers = fetchedActiveUsers.filter((user) => user.mode !== 'unknown') || [];
+        const unknownUsers = fetchedActiveUsers.filter((user) => user.mode === 'unknown') || [];
+        const activeUsersHTML = knownUsers
           .map((user) => {
             const userClass = user.mode === 'in' ? 'in' : 'out';
             const time = user.mode === 'in' ? `(${getElapsedTime(user.timestamp)})` : '';
             return `
               <div class="user-box ${userClass}">
                 <div class="user-name">
-                  ${user.name_kanji} (${user.name_kana})
+                  ${user.name_kanji}
+                </div>
+                <div class="user-name">
+                  (${user.name_kana})
                 </div>
                 <div class="user-info">
                   学籍番号: ${user.student_number}<br>
@@ -115,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
           .join('');
   
         // ログがないアクティブなユーザーを表示
-        unknownUsersHTML = fetchedUnknownUsers
+        unknownUsersHTML = unknownUsers
           .map((user) => {
             return `
               <div class="user-box unknown">
@@ -140,7 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${unknownUsersHTML || ''}
         `;
   
-        return true; // 成功した場合にtrueを返す
+        return true;
       })
       .catch((err) => {
         console.error('Error fetching active users:', err);
@@ -150,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   
   function reloadActiveUsers() {
-    const activeUsersHTML = activeUsers
+    const activeUsersHTML = knownUsers
       .map((user) => {
         const userClass = user.mode === 'in' ? 'in' : 'out';
         const time = user.mode === 'in' ? `(${getElapsedTime(user.timestamp)})` : '';
@@ -188,52 +194,55 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // モーダルの表示/非表示を切り替える
-  function toggleModal(message = null, autoCloseSeconds = 5) {
+  function toggleModal(message = null, autoCloseSeconds = 5, onCancel = null) {
+    const modalElement = document.getElementById('modal');
+    const modalBody = document.getElementById('modal-body');
+    const modalCloseButton = document.getElementById('modal-close');
+
+    const closeModal = () => {
+      modalElement.classList.remove('show');
+      if (modalInterval) clearInterval(modalInterval);
+      if (onCancel) window.electronAPI.cancelMode();
+    };
+
     if (modalInterval) {
       clearInterval(modalInterval);
       modalInterval = null;
     }
-    if (modalTimeout) {
-      clearTimeout(modalTimeout);
-      modalTimeout = null;
-    }
+
+    modalCloseButton.onclick = closeModal;
 
     if (message) {
-      let remainingSeconds = autoCloseSeconds; // 残り秒数を変数に設定
+      if (autoCloseSeconds && autoCloseSeconds > 0) {
+        let remainingSeconds = autoCloseSeconds; // 残り秒数を変数に設定
 
-      // メッセージ内の \n を残り秒数に置き換える
-      const updateMessage = () => {
-        const formattedMessage = message.replace('/n', `${remainingSeconds}`);
-        modalContent.innerHTML = `<p>${formattedMessage}</p>`;
-      };
-
-      updateMessage(); // 初回メッセージを設定
-      modalElement.classList.remove('hidden');
-
-      // 1秒ごとに残り時間を更新
-      modalInterval = setInterval(() => {
-        remainingSeconds -= 1;
-        if (remainingSeconds > 0) {
-          updateMessage(); // メッセージを更新
-        } else {
-          clearInterval(modalInterval); // インターバルをクリア
-          modalElement.classList.add('hidden'); // モーダルを閉じる
-        }
-      }, 1000);
-
-      // 指定された秒数後に自動で閉じる
-      modalTimeout = setTimeout(() => {
-        clearInterval(modalInterval); // インターバルをクリア
-        modalElement.classList.add('hidden'); // モーダルを閉じる
-      }, autoCloseSeconds * 1000);
+        // メッセージ内の \n を残り秒数に置き換える
+        const updateMessage = () => {
+          const formattedMessage = message.replace('/n', `${remainingSeconds}`);
+          modalBody.innerHTML = `<p>${formattedMessage}</p>`;
+        };
+        // 1秒ごとに残り時間を更新
+        modalInterval = setInterval(() => {
+          remainingSeconds -= 1;
+          if (remainingSeconds > 0) {
+            updateMessage(); // メッセージを更新
+          } else {
+            clearInterval(modalInterval);
+            modalInterval = null;
+            closeModal();
+          }
+        }, 1000);
+        updateMessage(); // 初回メッセージを設定
+      }
+      modalElement.classList.add('show');
     } else {
-      modalElement.classList.add('hidden');
+      closeModal();
     }
   }
 
   document.getElementById('add-user').addEventListener('click', async () => {
     try {
-      toggleModal('認証用のカードをタッチしてください...(/n)', 5);
+      toggleModal('認証用のカードをタッチしてください...(/n)', 5, true);
 
       // 認証モードを開始し、結果を取得
       window.electronAPI.setAuthMode()
@@ -244,16 +253,16 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           // 認証成功の場合
           const userName = result.name_kanji; // 名前を取得
-          toggleModal(`認証成功！${userName} さん`, 1); // 名前を1秒間表示
+          toggleModal(`認証成功！${userName} さん`, 2); // 名前を1秒間表示
           // 1秒後に追加処理を実行
           setTimeout(() => {
-            toggleModal('追加するカードをタッチしてください...(/n)',5);
+            toggleModal('追加するカードをタッチしてください...(/n)',5, true);
             window.electronAPI.saveUser();
-            window.electronAPI.onSaveResult((event, result) => {
-              if (result === false) {
+            window.electronAPI.onSaveResult((event, result, message) => {
+              if (!result) {
                 toggleModal('ユーザー追加失敗。', 5);
               } else {
-                const { student_number, name_kanji, name_kana, birthday, publication_date, expiry_date } = result;
+                const { student_number, name_kanji, name_kana, birthday, publication_date, expiry_date } = message;
                 toggleModal(`
                   <h1>ユーザー追加成功！</h1>
                   <p>学籍番号: ${student_number}</p>
@@ -275,41 +284,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 接続開始ボタン
   document.getElementById('start-connection').addEventListener('click', () => {
-    isWaitingForCard = true;
-    window.electronAPI.startWaitingForCard();
-    toggleModal('カードをタッチしてください...');
+    window.electronAPI.startConnection();
+    toggleModal('再接続中...', 5);
   });
 
   // 接続終了ボタン
   document.getElementById('stop-connection').addEventListener('click', () => {
-    isWaitingForCard = false;
-    window.electronAPI.stopWaitingForCard();
-    toggleModal(); // モーダルを閉じる
+    window.electronAPI.stopConnection();
+    toggleModal('接続を終了しました。', 5);
   });
 
   // カードデータを受信
-  window.electronAPI.onCardData((event, data) => {
-    if (isWaitingForCard) {
-      isWaitingForCard = false; // 待機状態を解除
-      toggleModal(); // モーダルを閉じる
-
-      if (data) {
-        // カード情報をモーダルに表示
-        modalContent.innerHTML = `
-          <h1>${data.name_kanji} (${data.name_kana})</h1>
-          <p>学籍番号: ${data.student_number}</p>
-          <p>状態: ${data.mode.toUpperCase()}</p>
-        `;
-        modalElement.classList.remove('hidden');
-
-        // 数秒後に自動で閉じる
-        setTimeout(() => {
-          modalElement.classList.add('hidden');
-        }, 5000);
-      } else {
-        toggleModal('カードがタッチされませんでした。', 5);
-      }
+  window.electronAPI.onMainResult((event, success, message) => {
+    if (!success) {
+            toggleModal(`
+        <h3 style="color: red;">エラー</h3>
+        <p>${message}</p>
+      `, 3);
+      return;
     }
+
+    const { student_number, name_kanji, name_kana, mode } = message;
+
+    // モードに応じた色とタイトルを設定
+    let modeColor = '';
+    let modeTitle = '';
+    switch (mode) {
+      case 'in':
+        modeColor = 'green';
+        modeTitle = '入室';
+        break;
+      case 'out':
+        modeColor = 'red';
+        modeTitle = '退室';
+        break;
+      default:
+        modeColor = 'gray';
+        modeTitle = '不明';
+        break;
+    }
+
+    toggleModal(`
+      <h1 style="color: ${modeColor};">${modeTitle}</h1>
+      <p>学籍番号: ${student_number}</p>
+      <p>名前: ${name_kanji} (${name_kana})</p>
+    `, 5);
+    updateActiveUsers();
+  });
+
+  window.electronAPI.onShowModal((type, message) => {
+    toggleModal(type, null, message);
   });
 
   // 接続状態を更新

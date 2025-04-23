@@ -50,148 +50,186 @@ db.serialize(() => {
   `);
 });
 
-// ユーザーを保存する関数
-function saveUser(user, callback) {
-  const {
-    student_number,
-    name_kanji,
-    name_kana,
-    birthday,
-    publication_date,
-    expiry_date,
-    created_at,
-  } = user;
-
-  // 既存ユーザーの確認
-  db.get(
-    `SELECT id FROM users WHERE student_number = ?`,
-    [student_number],
-    (err, row) => {
-      if (err) {
-        console.error('Error checking user existence:', err);
-        if (callback) callback({ success: false, error: 'DATABASE_ERROR' });
-        return;
-      }
-
-      if (row) {
-        console.log('User already exists in the database');
-        if (callback) callback({ success: false, error: 'USER_ALREADY_EXISTS' });
-      } else {
-        db.run(
-          `INSERT INTO users (student_number, name_kanji, name_kana, birthday, publication_date, expiry_date, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [student_number, name_kanji, name_kana, birthday, publication_date, expiry_date, created_at],
-          (err) => {
-            if (err) {
-              console.error('Error saving user to database:', err);
-              if (callback) callback({ success: false, error: 'DATABASE_ERROR' });
-            } else {
-              console.log('User saved to database');
-              if (callback) callback({ success: true });
-            }
-          }
-        );
-      }
-    }
-  );
-}
-
-// 出席ログを保存する関数
-function saveAttendanceLog(log) {
+function getUserIdByStudentNumber(studentNumber) {
   return new Promise((resolve, reject) => {
-    const { student_number, timestamp, mode, updated_at } = log;
-    let user_id = null;
-
-    // user_idの存在確認
     db.get(
       `SELECT id FROM users WHERE student_number = ?`,
-      [student_number],
+      [studentNumber],
       (err, row) => {
         if (err) {
-          console.error('Error checking user existence for attendance log:', err);
-          return reject('DATABASE_ERROR');
+          reject(err);
+        } else {
+          resolve(row);
         }
-
-        if (!row) {
-          console.log('User ID does not exist in the database');
-          return reject('USER_NOT_FOUND');
-        }
-
-        user_id = row.id;
-        db.run(
-          `INSERT INTO attendance_logs (user_id, timestamp, mode, updated_at)
-           VALUES (?, ?, ?, ?)`,
-          [user_id, timestamp, mode, updated_at],
-          (err) => {
-            if (err) {
-              console.error('Error saving attendance log to database:', err);
-              return reject('DATABASE_ERROR');
-            } else {
-              console.log('Attendance log saved to database');
-              resolve();
-            }
-          }
-        );
       }
     );
   });
 }
 
-// 操作ログを保存する関数
-function saveOperationLog(log, callback) {
-  const { operator_user_id, target_user_id, operation_type, details, timestamp } = log;
-
-  // operator_user_idの存在確認
-  db.get(
-    `SELECT id FROM users WHERE id = ?`,
-    [operator_user_id],
-    (err, operatorRow) => {
-      if (err) {
-        console.error('Error checking operator user existence:', err);
-        if (callback) callback({ success: false, error: 'DATABASE_ERROR' });
-        return;
-      }
-
-      if (!operatorRow) {
-        console.log('Operator user ID does not exist in the database');
-        if (callback) callback({ success: false, error: 'OPERATOR_USER_NOT_FOUND' });
-        return;
-      }
-
-      // target_user_idの存在確認
-      db.get(
-        `SELECT id FROM users WHERE id = ?`,
-        [target_user_id],
-        (err, targetRow) => {
-          if (err) {
-            console.error('Error checking target user existence:', err);
-            if (callback) callback({ success: false, error: 'DATABASE_ERROR' });
-            return;
-          }
-
-          if (!targetRow) {
-            console.log('Target user ID does not exist in the database');
-            if (callback) callback({ success: false, error: 'TARGET_USER_NOT_FOUND' });
-          } else {
-            db.run(
-              `INSERT INTO operation_logs (operator_user_id, target_user_id, operation_type, details, timestamp)
-               VALUES (?, ?, ?, ?, ?)`,
-              [operator_user_id, target_user_id, operation_type, details, timestamp],
-              (err) => {
-                if (err) {
-                  console.error('Error saving operation log to database:', err);
-                  if (callback) callback({ success: false, error: 'DATABASE_ERROR' });
-                } else {
-                  console.log('Operation log saved to database');
-                  if (callback) callback({ success: true });
-                }
-              }
-            );
-          }
+function getLatestAttendanceLogById(userid, startOfDay, endOfDay) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      `SELECT mode, timestamp FROM attendance_logs
+       WHERE user_id = ? AND timestamp >= ? AND timestamp <= ?
+       ORDER BY timestamp DESC LIMIT 1`,
+      [userid, startOfDay, endOfDay],
+      (err, row) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(row);
         }
-      );
-    }
-  );
+      }
+    );
+  });
 }
 
-module.exports = { saveUser, saveAttendanceLog, saveOperationLog };
+function getLatestAttendanceLog(startOfDay, endOfDay) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      `SELECT a.user_id, u.student_number, u.name_kanji, u.name_kana, a.mode, a.timestamp
+       FROM attendance_logs a
+       JOIN users u ON a.user_id = u.id
+       WHERE a.timestamp >= ? AND a.timestamp <= ?
+       ORDER BY a.timestamp DESC LIMIT 1`,
+      [startOfDay, endOfDay],
+      (err, row) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(row);
+        }
+      }
+    );
+  });
+}
+
+function getHasNoAttendanceLogToday(startOfDay, endOfDay) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT u.id, u.student_number, u.name_kanji, u.name_kana
+       FROM users u
+       WHERE u.is_active = 1
+         AND NOT EXISTS (
+           SELECT 1
+           FROM attendance_logs a
+           WHERE a.user_id = u.id
+             AND a.timestamp >= ?
+             AND a.timestamp <= ?
+         )
+       ORDER BY u.student_number ASC`,
+      [startOfDay, endOfDay],
+      (err, rows) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      }
+    );
+  });
+}
+
+function saveAttendanceLog(userId, mode) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO attendance_logs (user_id, mode, timestamp)
+       VALUES (?, ?, ?)`,
+      [userId, mode, new Date().toISOString()],
+      (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
+  });
+}
+
+// ユーザーを保存する関数
+function saveUser(user) {
+  return new Promise((resolve, reject) => {
+    const {
+      student_number,
+      name_kanji,
+      name_kana,
+      birthday,
+      publication_date,
+      expiry_date,
+      created_at,
+    } = user;
+
+    db.run(
+      `INSERT INTO users (student_number, name_kanji, name_kana, birthday, publication_date, expiry_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [student_number, name_kanji, name_kana, birthday, publication_date, expiry_date, created_at],
+      function (err) {
+        if (err) {
+          reject(new Error(`Database error: ${err.message}`));
+        } else {
+          resolve(true);
+        }
+      }
+    );
+  });
+}
+
+function fetchActiveUsers() {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT u.student_number, u.name_kanji, u.name_kana, a.mode, a.timestamp
+       FROM users u
+       LEFT JOIN attendance_logs a
+         ON u.id = a.user_id
+       WHERE u.is_active = 1
+         AND a.timestamp = (
+           SELECT MAX(a2.timestamp)
+           FROM attendance_logs a2
+           WHERE a2.user_id = u.id
+         )
+       ORDER BY a.timestamp DESC`,
+      (err, rows) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      }
+    );
+  });
+}
+
+function fetchActiveAllUsers() {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT u.student_number, u.name_kanji, u.name_kana
+       FROM users u
+       WHERE u.is_active = 1
+         AND NOT EXISTS (
+           SELECT 1
+           FROM attendance_logs a
+           WHERE a.user_id = u.id
+         )
+       ORDER BY u.student_number ASC`,
+      (err, rows) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      }
+    );
+  });
+}
+
+module.exports = {
+  getUserIdByStudentNumber,
+  getLatestAttendanceLogById,
+  getLatestAttendanceLog,
+  getHasNoAttendanceLogToday,
+  saveAttendanceLog,
+  saveUser,
+  fetchActiveUsers,
+  fetchActiveAllUsers,
+};

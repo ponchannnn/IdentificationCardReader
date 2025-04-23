@@ -12,9 +12,8 @@
     <button class="tab" data-tab="log">📑 ログ</button>
     <button class="tab" data-tab="settings">⚙ 設定</button>
   </div>
-
+  <div id="current-datetime" class="current-datetime">現在の日付と時刻を取得中...</div>
   <div class="tab-content" id="main">
-    <h1>接続状態</h1>
     <div id="status" class="status">起動中</div>
     <h2>アクティブユーザー</h2>
     <div id="active-users" class="active-users">ユーザー情報を取得中...</div>
@@ -27,14 +26,17 @@
   
   <div class="tab-content hidden" id="settings">
     <h1>設定</h1>
-    <button id="start-connection" class="btn">接続開始</button>
+    <button id="start-connection" class="btn">再接続</button>
     <button id="stop-connection" class="btn">接続終了</button>
     <button id="add-user" class="btn">ユーザー追加</button>
     <button id="remove-user" class="btn">ユーザー削除</button>
   </div>
 
-  <div id="modal" class="hidden">
-    <div id="modal-content" class="modal-content"></div>
+  <div id="modal" class="modal">
+    <div id="modal-content" class="modal-content">
+      <button id="modal-close" class="modal-close">×</button>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
   </div>
 
   <script src="../renderer.js"></script>

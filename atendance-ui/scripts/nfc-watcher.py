@@ -34,7 +34,6 @@ def send_to_tcp_server(data):
         if sock is None:
             connect_to_tcp_server()
         sock.sendall(json.dumps(data).encode("utf-8"))
-        print("Data sent to TCP server:", data)
     except Exception as e:
         print("Error sending data to TCP server:", e)
         sock = None  # エラー時にソケットをリセット
@@ -42,7 +41,6 @@ def send_to_tcp_server(data):
 
 def on_connect(tag: nfc.tag.Tag) -> bool:
     """NFCタグが接続されたときの処理"""
-    print("connected")
 
     if isinstance(tag, nfc.tag.tt3.Type3Tag):
         try:
@@ -92,6 +90,7 @@ def on_connect(tag: nfc.tag.Tag) -> bool:
 
             # データを辞書形式にまとめる
             data = {
+                "type": "card",
                 "student_number": student_number,
                 "name_kanji": chinese_characters_name,
                 "name_kana": kana_name,
@@ -104,23 +103,36 @@ def on_connect(tag: nfc.tag.Tag) -> bool:
             send_to_tcp_server(data)
 
         except Exception as e:
-            print("Error in on_connect:", e)
+            send_to_tcp_server({
+                "type": "error",
+                "message": "Failed to read NFC tag data",
+            })
     else:
-        print("Error: tag isn't Type3Tag")
+        send_to_tcp_server({
+            "type": "error",
+            "message": "UNSUPPORTED TAG TYPE",
+        })
 
     return True  # タグが存在しなくなるまで待機
 
 def on_release(tag: nfc.tag.Tag) -> None:
     """NFCタグが離されたときの処理"""
-    print("released")
+    send_to_tcp_server({"type": "released"})  # タグが離れたときに空のデータを送信
 
 # メイン処理
 connect_to_tcp_server()  # 起動時にTCPサーバーに接続
 with nfc.ContactlessFrontend("usb") as clf:
+    send_to_tcp_server({
+        "type": "info",
+        "message": "NFC READER CONNECTED"
+    })
     while True:
         try:
             clf.connect(rdwr={"on-connect": on_connect, "on-release": on_release})
         except Exception as e:
-            print("Error with NFC reader:", e)
-            print("Retrying in 5 seconds...")
+            print("Error connecting to NFC reader:", e)
+            send_to_tcp_server({
+                "type": "error",
+                "message": "NFC READER NOT FOUND",
+            })
             time.sleep(5)  # 再接続までの待機時間
