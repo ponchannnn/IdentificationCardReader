@@ -8,3 +8,4 @@ node_modules/
 *.so
 
 atendance-ui/scripts/card_logs.db
+nfc-watcher-mock.py

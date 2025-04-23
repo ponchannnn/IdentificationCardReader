@@ -291,6 +291,7 @@ app.on('ready', () => {
         preload: path.join(__dirname, 'preload.js'), // preloadスクリプトを指定
         contextIsolation: true, // 必須
         enableRemoteModule: false, // セキュリティ向上のため無効化
+        nodeIntegration: false,
       },
     });
 

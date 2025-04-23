@@ -240,6 +240,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function updateDateTime() {
+    const dateTimeElement = document.getElementById('current-datetime');
+    if (dateTimeElement) {
+      const now = new Date();
+      const formattedDateTime = now.toLocaleString('ja-JP', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+      dateTimeElement.textContent = formattedDateTime;
+    }
+  }
+
   document.getElementById('add-user').addEventListener('click', async () => {
     try {
       toggleModal('認証用のカードをタッチしてください...(/n)', 5, true);
@@ -379,4 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
       activeInterval = setInterval(reloadActiveUsers, 1000);
     }
   });
+
+  updateDateTime();
+  setInterval(updateDateTime, 1000);
 });

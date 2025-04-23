@@ -12,6 +12,13 @@ body {
   ::-webkit-scrollbar {
     display: none;
   }
+
+  .current-datetime {
+    font-size: 30px;
+    font-weight: bold;
+    text-align: center;
+    margin: 10px 0;
+  }
   
   .tab-bar {
     display: flex;
@@ -123,8 +130,8 @@ body {
   #status {
     font-size: 2em;
     color: #999;
-    margin-top: 2em;
     text-align: center;
+    margin-top: 20px;
   }
 
   .active-users, .log-list {
@@ -179,9 +186,9 @@ body {
     cursor: pointer;
   }
 
-  #active-users {
-    margin-top: 20px;
-  }
+#active-users {
+  margin-top: 20px;
+}
 
   .btn {
     display: inline-block;
