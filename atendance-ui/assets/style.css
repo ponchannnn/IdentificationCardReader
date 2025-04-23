@@ -13,6 +13,14 @@ body {
     display: none;
   }
 
+  h2 {
+    font-size: 2em;
+    font-weight: bold;
+    text-align: center;
+    margin: 10px 0;
+    color: #333;
+  }
+
   .current-datetime {
     font-size: 30px;
     font-weight: bold;
@@ -86,6 +94,11 @@ body {
   .user-box.out {
     border-color: red;
     color: red;
+  }
+
+  .user-box.rest {
+    border-color: orange;
+    color: orange;
   }
 
   .user-box.unknown {

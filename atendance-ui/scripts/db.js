@@ -30,7 +30,8 @@ db.serialize(() => {
       timestamp TEXT,
       mode TEXT,
       deleted BOOLEAN DEFAULT 0,
-      updated_at TEXT,
+      subscribed_by TEXT,
+      selected_by TEXT,
       FOREIGN KEY (user_id) REFERENCES users (id)
     )
   `);
@@ -130,17 +131,17 @@ function getHasNoAttendanceLogToday(startOfDay, endOfDay) {
   });
 }
 
-function saveAttendanceLog(userId, mode) {
+function saveAttendanceLog(userId, mode, subscribedBy = 'card', selectedBy = 'system') {
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO attendance_logs (user_id, mode, timestamp)
-       VALUES (?, ?, ?)`,
-      [userId, mode, new Date().toISOString()],
-      (err) => {
+      `INSERT INTO attendance_logs (user_id, mode, timestamp, subscribed_by, selected_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [userId, mode, new Date().toISOString(), subscribedBy, selectedBy],
+      function (err) {
         if (err) {
           reject(err);
         } else {
-          resolve();
+          resolve(true);
         }
       }
     );

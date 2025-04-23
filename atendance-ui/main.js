@@ -5,14 +5,11 @@ const { getUserIdByStudentNumber,
   getLatestAttendanceLog, 
   getHasNoAttendanceLogToday,
   saveAttendanceLog, 
-  saveUser, 
-  fetchActiveUsers, 
-  fetchActiveAllUsers,
+  saveUser,
 } = require('./scripts/db'); // データベース保存用モジュール
 const net = require('net');
 const sqlite3 = require('sqlite3').verbose(); // SQLite3モジュール
 const { spawn } = require('child_process'); // Pythonスクリプトを起動するために使用
-const { get } = require('http');
 const db = new sqlite3.Database('./scripts/card_logs.db', (err) => {
   if (err) {
     console.error('Error opening database:', err.message);
@@ -39,46 +36,66 @@ function startTCPServer() {
   server = net.createServer((socket) => {
     // クライアントからデータを受信
     socket.on('data', async (data) => {
-      clearTimeout(timeout);
+      if (!isWaitingForCard) return;
       try {
         const parsedData = JSON.parse(data.toString());
         pyData = parsedData;
       } catch (err) {
         console.error('Error processing client data:', err);
       }
-      if (isWaitingForCard && pyData.type == 'card') {
+
+      if (pyData.type === 'card') {
+        clearTimeout(timeout);
         if (mainWindow && cardDataMode === 'main-mode') {
           isWaitingForCard = false;
-          // メインモード
+
           if (pyData && pyData.student_number) {
             try {
               const userRow = await getUserIdByStudentNumber(pyData.student_number);
               if (!userRow) {
                 mainWindow.webContents.send('main-result', false, 'USER NOT FOUND');
+                isWaitingForCard = true;
                 return;
               }
-  
+
               const userId = userRow.id;
               const currentDate = new Date().toISOString().split('T')[0];
               const startOfDay = `${currentDate} 00:07:00`;
               const endOfDay = `${new Date(new Date(currentDate).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]} 06:59:59`;
-  
+
               const logRow = await getLatestAttendanceLogById(userId, startOfDay, endOfDay);
               const newMode = logRow && logRow.mode === 'in' ? 'out' : 'in';
-  
-              await saveAttendanceLog(userId, newMode);
-              mainWindow.webContents.send('main-result', true, {
+
+              mainWindow.webContents.send('card-detected', {
                 student_number: pyData.student_number,
                 name_kanji: pyData.name_kanji,
                 name_kana: pyData.name_kana,
                 mode: newMode,
               });
+              
+              let = pyDataForTimeout = {
+                student_number: pyData.student_number,
+                name_kanji: pyData.name_kanji,
+                name_kana: pyData.name_kana,
+                mode: newMode,
+              };
+              
+              timeout = setTimeout(async () => {
+                await saveAttendanceLog(userId, pyDataForTimeout.mode, 'card', 'system');
+                mainWindow.webContents.send('main-result', true, {
+                  student_number: pyDataForTimeout.student_number,
+                  name_kanji: pyDataForTimeout.name_kanji,
+                  name_kana: pyDataForTimeout.name_kana,
+                  mode: pyDataForTimeout.mode,
+                });
+                isWaitingForCard = true;
+              }, 5000);
             } catch (err) {
               console.error('Error processing client data:', err);
               mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
+              isWaitingForCard = true;
             }
           }
-          isWaitingForCard = true;
         } else if (cardDataMode === 'auth-mode') {
           isWaitingForCard = false;
           // 認証モード
@@ -118,15 +135,42 @@ function startTCPServer() {
           isWaitingForCard = false;
           pyData = null;
         }
-      } else {
-        if (pyData.type == "error") {
-          if (pyData.message == "UNSUPPORTED TAG TYPE") {
-            mainWindow.webContents.send('show-modal', { type:pyData.type, message: pyData.message });
-          }
-        }
       }
     });
-    
+
+    // rendererからのキャンセル処理
+    ipcMain.on('cancel-attendance', () => {
+      clearTimeout(timeout);
+      pyData = null;
+      isWaitingForCard = true;
+    });
+
+    // rendererからの選択処理
+    ipcMain.on('select-attendance-mode', async (event, { mode, student_number }) => {
+      clearTimeout(timeout);
+      try {
+        const userRow = await getUserIdByStudentNumber(student_number);
+        if (!userRow) {
+          mainWindow.webContents.send('main-result', false, 'USER NOT FOUND');
+          return;
+        }
+
+        const userId = userRow.id;
+        await saveAttendanceLog(userId, mode, 'card', 'manual');
+        mainWindow.webContents.send('main-result', true, {
+          student_number,
+          name_kanji: pyData.name_kanji,
+          name_kana: pyData.name_kana,
+          mode,
+        });
+      } catch (err) {
+        console.error('Error saving attendance log:', err);
+        mainWindow.webContents.send('main-result', false, 'DATABASE ERROR');
+      } finally {
+        isWaitingForCard = true;
+      }
+    });
+
     // クライアント切断時の処理
     socket.on('close', (err) => {
       console.log('Client disconnected:', socket.remoteAddress);

@@ -15,4 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDeleteResult: (callback) => ipcRenderer.on('delete-result', callback),
   onShowModal: (callback) => ipcRenderer.on('show-modal', callback),
   cancelMode: () => ipcRenderer.send('cancel-mode'),
+  onCardDetected: (callback) => ipcRenderer.on('card-detected', callback),
+  CancelAttendance: () => ipcRenderer.send('cancel-attendance'),
+  SelectAttendanceMode: (callback) => ipcRenderer.send('select-attendance-mode', callback),
 });

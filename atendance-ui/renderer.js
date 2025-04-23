@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let modalInterval = null;
   let knownUsers;
   let unknownUsersHTML = [];
+  let updateButtonEventFunction = null;
 
   window.electronAPI.onIsMainTab(true);
 
@@ -101,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const unknownUsers = fetchedActiveUsers.filter((user) => user.mode === 'unknown') || [];
         const activeUsersHTML = knownUsers
           .map((user) => {
-            const userClass = user.mode === 'in' ? 'in' : 'out';
+            const userClass = user.mode;
             const time = user.mode === 'in' ? `(${getElapsedTime(user.timestamp)})` : '';
             return `
               <div class="user-box ${userClass}">
@@ -158,8 +159,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function reloadActiveUsers() {
     const activeUsersHTML = knownUsers
       .map((user) => {
-        const userClass = user.mode === 'in' ? 'in' : 'out';
-        const time = user.mode === 'in' ? `(${getElapsedTime(user.timestamp)})` : '';
+        const userClass = user.mode;
+        const time = user.mode === 'in' || user.mode === 'rest' ? `(${getElapsedTime(user.timestamp)})` : '';
         return `
           <div class="user-box ${userClass}">
             <div class="user-name">
@@ -203,6 +204,9 @@ document.addEventListener('DOMContentLoaded', () => {
       modalElement.classList.remove('show');
       if (modalInterval) clearInterval(modalInterval);
       if (onCancel) window.electronAPI.cancelMode();
+      updateButtonEventFunction = null;
+      modalInterval = null;
+      modalCloseButton.onclick = null;
     };
 
     if (modalInterval) {
@@ -218,8 +222,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // メッセージ内の \n を残り秒数に置き換える
         const updateMessage = () => {
-          const formattedMessage = message.replace('/n', `${remainingSeconds}`);
+          const formattedMessage = message.replace(/\/n/g, `${remainingSeconds}`);
           modalBody.innerHTML = `<p>${formattedMessage}</p>`;
+          if (typeof updateButtonEventFunction === 'function') {
+            updateButtonEventFunction();
+          }
         };
         // 1秒ごとに残り時間を更新
         modalInterval = setInterval(() => {
@@ -256,6 +263,63 @@ document.addEventListener('DOMContentLoaded', () => {
       dateTimeElement.textContent = formattedDateTime;
     }
   }
+
+  window.electronAPI.onCardDetected((event, cardData) => {
+    let modeColor = '';
+    let modeTitle = '';
+    switch (cardData.mode) {
+      case 'in':
+        modeColor = 'green';
+        modeTitle = '入室';
+        break;
+      case 'out':
+        modeColor = 'red';
+        modeTitle = '退室';
+        break;
+      case 'rest':
+        modeColor = 'orange';
+        modeTitle = '休憩';
+        break;
+      default:
+        modeColor = 'gray';
+        modeTitle = '不明';
+        break;
+    }
+
+    toggleModal(`
+      <h1 style="color: ${modeColor};">${modeTitle}しますか?(/n)</h1>
+      <p color=gray>/n秒後自動で${modeTitle}</p>
+      <p></p>
+      <h2>${cardData.name_kanji}</h2>
+      <p>(${cardData.name_kana})</p>
+      <p>学籍番号: ${cardData.student_number}</p>
+      ${cardData.mode === 'out' ? `
+        <button id="rest-button" class="btn">休憩</button>
+        <button id="out-button" class="btn">退出</button>
+      ` : ''}
+      <button id="cancel-button" class="btn">キャンセル</button>
+    `, 5);
+  
+    updateButtonEventFunction = () => {
+      document.getElementById('cancel-button').addEventListener('click', () => {
+        window.electronAPI.CancelAttendance();
+        toggleModal();
+      });
+    
+      if (cardData.mode === 'out') {
+        document.getElementById('rest-button').addEventListener('click', () => {
+          window.electronAPI.SelectAttendanceMode({ mode: 'rest', student_number: cardData.student_number });
+          toggleModal();
+        });
+    
+        document.getElementById('out-button').addEventListener('click', () => {
+          window.electronAPI.SelectAttendanceMode({ mode: 'out', student_number: cardData.student_number });
+          toggleModal();
+        });
+      }
+    };
+    
+  });
 
   document.getElementById('add-user').addEventListener('click', async () => {
     try {
@@ -335,6 +399,10 @@ document.addEventListener('DOMContentLoaded', () => {
         modeColor = 'red';
         modeTitle = '退室';
         break;
+      case 'rest':
+        modeColor = 'orange';
+        modeTitle = '休憩';
+        break;
       default:
         modeColor = 'gray';
         modeTitle = '不明';
@@ -343,8 +411,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     toggleModal(`
       <h1 style="color: ${modeColor};">${modeTitle}</h1>
+      <h2>${name_kanji}</h2>
+      <p>(${name_kana})</p>
       <p>学籍番号: ${student_number}</p>
-      <p>名前: ${name_kanji} (${name_kana})</p>
     `, 5);
     updateActiveUsers();
   });
