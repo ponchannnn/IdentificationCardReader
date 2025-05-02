@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // モーダルの表示/非表示を切り替える
-  function toggleModal(message = null, autoCloseSeconds = 5, onCancel = null) {
+  function toggleModal(message = null, autoCloseSeconds = 5, onCancel = null, hasButton = false) {
     const modalElement = document.getElementById('modal');
     const modalBody = document.getElementById('modal-body');
     const modalCloseButton = document.getElementById('modal-close');
@@ -203,13 +203,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeModal = () => {
       modalElement.classList.remove('show');
       if (modalInterval) clearInterval(modalInterval);
+      modalInterval = null;
       if (onCancel) window.electronAPI.cancelMode();
       updateButtonEventFunction = null;
-      modalInterval = null;
       modalCloseButton.onclick = null;
     };
 
-    if (modalInterval) {
+    if (modalInterval) {console.log(message, modalInterval);
       clearInterval(modalInterval);
       modalInterval = null;
     }
@@ -220,11 +220,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (autoCloseSeconds && autoCloseSeconds > 0) {
         let remainingSeconds = autoCloseSeconds; // 残り秒数を変数に設定
 
-        // メッセージ内の \n を残り秒数に置き換える
+        // メッセージ内の /n を残り秒数に置き換える
         const updateMessage = () => {
           const formattedMessage = message.replace(/\/n/g, `${remainingSeconds}`);
           modalBody.innerHTML = `<p>${formattedMessage}</p>`;
-          if (typeof updateButtonEventFunction === 'function') {
+          if (hasButton && typeof updateButtonEventFunction === 'function') {
             updateButtonEventFunction();
           }
         };
@@ -234,8 +234,6 @@ document.addEventListener('DOMContentLoaded', () => {
           if (remainingSeconds > 0) {
             updateMessage(); // メッセージを更新
           } else {
-            clearInterval(modalInterval);
-            modalInterval = null;
             closeModal();
           }
         }, 1000);
@@ -267,18 +265,18 @@ document.addEventListener('DOMContentLoaded', () => {
   window.electronAPI.onCardDetected((event, cardData) => {
     let modeColor = '';
     let modeTitle = '';
-    switch (cardData.mode) {
+    switch (cardData.lastMode) {
       case 'in':
-        modeColor = 'green';
-        modeTitle = '入室';
-        break;
-      case 'out':
         modeColor = 'red';
         modeTitle = '退室';
         break;
+      case 'out':
+        modeColor = 'green';
+        modeTitle = '入室';
+        break;
       case 'rest':
-        modeColor = 'orange';
-        modeTitle = '休憩';
+        modeColor = 'green';
+        modeTitle = '入室';
         break;
       default:
         modeColor = 'gray';
@@ -286,29 +284,29 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
     }
 
-    toggleModal(`
-      <h1 style="color: ${modeColor};">${modeTitle}しますか?(/n)</h1>
-      <p color=gray>/n秒後自動で${modeTitle}</p>
-      <p></p>
-      <h2>${cardData.name_kanji}</h2>
-      <p>(${cardData.name_kana})</p>
-      <p>学籍番号: ${cardData.student_number}</p>
-      ${cardData.mode === 'out' ? `
-        <button id="rest-button" class="btn">休憩</button>
-        <button id="out-button" class="btn">退出</button>
-      ` : ''}
-      <button id="cancel-button" class="btn">キャンセル</button>
-    `, 5);
-  
     updateButtonEventFunction = () => {
       document.getElementById('cancel-button').addEventListener('click', () => {
         window.electronAPI.CancelAttendance();
         toggleModal();
       });
     
-      if (cardData.mode === 'out') {
+      if (cardData.lastMode === 'in') {
         document.getElementById('rest-button').addEventListener('click', () => {
           window.electronAPI.SelectAttendanceMode({ mode: 'rest', student_number: cardData.student_number });
+          toggleModal();
+        });
+        document.getElementById('out-button').addEventListener('click', () => {
+          window.electronAPI.SelectAttendanceMode({ mode: 'out', student_number: cardData.student_number });
+          toggleModal();
+        });
+      } else if (cardData.lastMode === 'out') {
+        document.getElementById('in-button').addEventListener('click', () => {
+          window.electronAPI.SelectAttendanceMode({ mode: 'in', student_number: cardData.student_number });
+          toggleModal();
+        });
+      } else if (cardData.lastMode === 'rest') {
+        document.getElementById('in-button').addEventListener('click', () => {
+          window.electronAPI.SelectAttendanceMode({ mode: 'in', student_number: cardData.student_number });
           toggleModal();
         });
     
@@ -318,7 +316,25 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
     };
-    
+
+    toggleModal(`
+      <h1 style="color: ${modeColor};">${modeTitle}しますか?(/n)</h1>
+      <p color=gray>/n秒後自動で${modeTitle}</p>
+      <p></p>
+      <h2>${cardData.name_kanji}</h2>
+      <p>(${cardData.name_kana})</p>
+      <p>学籍番号: ${cardData.student_number}</p>
+      ${cardData.lastMode === 'in' ? `
+        <button id="rest-button" class="btn">休憩</button>
+        <button id="out-button" class="btn">退出</button>
+      ` : cardData.lastMode === 'out' ? `
+        <button id="in-button" class="btn">入室</button>
+      ` : cardData.lastMode === 'rest' ? `
+        <button id="in-button" class="btn">入室</button>
+        <button id="out-button" class="btn">退出</button>
+      ` : ''}
+      <button id="cancel-button" class="btn">キャンセル</button>
+    `, 5, undefined, true);
   });
 
   document.getElementById('add-user').addEventListener('click', async () => {
@@ -378,10 +394,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // カードデータを受信
   window.electronAPI.onMainResult((event, success, message) => {
     if (!success) {
-            toggleModal(`
-        <h3 style="color: red;">エラー</h3>
-        <p>${message}</p>
-      `, 3);
+      updateButtonEventFunction = () => {
+        document.getElementById('assign-button').addEventListener('click', () => {
+          window.electronAPI.AssignUser();
+          toggleModal('登録中...', 5);
+        });
+        document.getElementById('cancel-assign-button').addEventListener('click', () => {
+          window.electronAPI.CancelAssignUser();
+          toggleModal();
+        });
+      };
+  
+      toggleModal(`
+      <h2 style="color: red;">登録されていないカードです!</h2>
+      <p>名前: ${message.name_kanji}</p>
+      <p>登録しますか?(/n)</p>
+      <button id="assign-button" class="btn">登録</button>
+      <button id="cancel-assign-button" class="btn">キャンセル</button>
+      `, 5, undefined, true);
       return;
     }
 
@@ -453,6 +483,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     statusElement.textContent = `${statusEmoji} ${statusText}`;
     statusElement.style.color = statusColor;
+  });
+
+  window.electronAPI.onAssignResult((event, success, message) => {
+    if (success) {
+      toggleModal(`
+        <h1>登録成功！</h1>
+        <p>学籍番号: ${message.student_number}</p>
+        <p>名前: ${message.name_kanji} (${message.name_kana})</p>
+        <p>入室する場合はもう一度タッチしてください。</p>
+      `, 5);
+    } else {
+      toggleModal(`
+        <h1>登録失敗！</h1>
+        <p>${message}</p>
+        `, 5);
+    }
   });
 
   // 初回更新

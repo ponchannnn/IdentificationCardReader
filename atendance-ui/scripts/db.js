@@ -54,7 +54,7 @@ db.serialize(() => {
 function getUserIdByStudentNumber(studentNumber) {
   return new Promise((resolve, reject) => {
     db.get(
-      `SELECT id FROM users WHERE student_number = ?`,
+      `SELECT id FROM users WHERE student_number = ? AND is_active = 1 AND deleted = 0`,
       [studentNumber],
       (err, row) => {
         if (err) {

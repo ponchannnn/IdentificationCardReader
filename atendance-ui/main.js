@@ -53,8 +53,13 @@ function startTCPServer() {
             try {
               const userRow = await getUserIdByStudentNumber(pyData.student_number);
               if (!userRow) {
-                mainWindow.webContents.send('main-result', false, 'USER NOT FOUND');
-                isWaitingForCard = true;
+                mainWindow.webContents.send('main-result', false, {
+                  name_kanji: pyData.name_kanji,
+                });
+
+                timeout = setTimeout(async () => {
+                  isWaitingForCard = true;
+                }, 5000);
                 return;
               }
 
@@ -64,20 +69,29 @@ function startTCPServer() {
               const endOfDay = `${new Date(new Date(currentDate).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]} 06:59:59`;
 
               const logRow = await getLatestAttendanceLogById(userId, startOfDay, endOfDay);
-              const newMode = logRow && logRow.mode === 'in' ? 'out' : 'in';
-
               mainWindow.webContents.send('card-detected', {
                 student_number: pyData.student_number,
                 name_kanji: pyData.name_kanji,
                 name_kana: pyData.name_kana,
-                mode: newMode,
+                lastMode: logRow && logRow.mode ? logRow.mode : "out",
               });
+
+              let attendanceMode = "in";
+              if (logRow){
+                if (logRow.mode === 'in') {
+                  attendanceMode = "out";
+                } else if (logRow.mode === 'out') {
+                  attendanceMode = "in";
+                } else if (logRow.mode === 'rest') {
+                  attendanceMode = "in";
+                }
+              };
               
               let = pyDataForTimeout = {
                 student_number: pyData.student_number,
                 name_kanji: pyData.name_kanji,
                 name_kana: pyData.name_kana,
-                mode: newMode,
+                mode: attendanceMode,
               };
               
               timeout = setTimeout(async () => {
@@ -140,6 +154,32 @@ function startTCPServer() {
 
     // rendererからのキャンセル処理
     ipcMain.on('cancel-attendance', () => {
+      clearTimeout(timeout);
+      pyData = null;
+      isWaitingForCard = true;
+    });
+
+    ipcMain.on('assign-user', () => {
+      clearTimeout(timeout);
+      try {
+        if (pyData && pyData.student_number) {
+          saveUser(pyData);
+          mainWindow.webContents.send('assign-result', true, {
+            student_number: pyData.student_number,
+            name_kanji: pyData.name_kanji,
+            name_kana: pyData.name_kana,
+          });
+        } else {
+          mainWindow.webContents.send('assign-result', false, 'USER NOT FOUND');
+        }
+      } catch (err) {
+        mainWindow.webContents.send('assign-result', false, err.message || 'DATABASE ERROR');
+      }
+      isWaitingForCard = true;
+      pyData = null;
+    });
+
+    ipcMain.on('cancel-assign-user', () => {
       clearTimeout(timeout);
       pyData = null;
       isWaitingForCard = true;
