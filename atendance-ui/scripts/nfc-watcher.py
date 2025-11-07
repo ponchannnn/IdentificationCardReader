@@ -121,18 +121,22 @@ def on_release(tag: nfc.tag.Tag) -> None:
 
 # メイン処理
 connect_to_tcp_server()  # 起動時にTCPサーバーに接続
-with nfc.ContactlessFrontend("usb") as clf:
-    send_to_tcp_server({
-        "type": "info",
-        "message": "NFC READER CONNECTED"
-    })
-    while True:
-        try:
-            clf.connect(rdwr={"on-connect": on_connect, "on-release": on_release})
-        except Exception as e:
-            print("Error connecting to NFC reader:", e)
-            send_to_tcp_server({
-                "type": "error",
-                "message": "NFC READER NOT FOUND",
-            })
-            time.sleep(5)  # 再接続までの待機時間
+try:
+    with nfc.ContactlessFrontend("usb") as clf:
+        send_to_tcp_server({
+            "type": "info",
+            "message": "NFC READER CONNECTED"
+        })
+        while True:
+            try:
+                clf.connect(rdwr={"on-connect": on_connect, "on-release": on_release})
+            except Exception as e:
+                print("Error connecting to NFC reader:", e)
+                send_to_tcp_server({
+                    "type": "error",
+                    "message": "NFC READER NOT FOUND",
+                })
+                time.sleep(5)  # 再接続までの待機時間
+except Exception as e:
+   print("Failed to initialize NFC reader:", e)
+   print("!!!!!Maybe Needs zadig driver installation?!!!!!")
