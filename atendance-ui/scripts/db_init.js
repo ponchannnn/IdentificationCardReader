@@ -29,6 +29,7 @@ async function createAttendanceLogsTable() {
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, -- ユーザー削除時にログは残す
       timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       mode TEXT, -- 'in', 'out', 'rest'
       subscribed_by TEXT, -- 'card', 'manual'
       selected_by TEXT, -- 'system', 'manual'

@@ -1,6 +1,5 @@
 let activeInterval;
 let users = [];
-let isMainTab = true;
 
 document.addEventListener('DOMContentLoaded', () => {
   const tabs = document.querySelectorAll('.tab');
@@ -14,26 +13,22 @@ document.addEventListener('DOMContentLoaded', () => {
   let unknownUsersHTML = [];
   let updateButtonEventFunction = null;
 
-  window.electronAPI.onIsMainTab(true);
+  window.electronAPI.onTabChange(0);
 
   // タブの切り替え処理
   tabs.forEach((tab) => {
     tab.addEventListener('click', async () => {
-      // すべてのタブからアクティブクラスを削除
       tabs.forEach((t) => t.classList.remove('active'));
 
-      // クリックされたタブにアクティブクラスを追加
       tab.classList.add('active');
 
-      // すべてのタブコンテンツを非表示
       tabContents.forEach((content) => content.classList.add('hidden'));
 
-      // 対応するタブコンテンツを表示
       const targetTab = tab.getAttribute('data-tab');
       document.getElementById(targetTab).classList.remove('hidden');
 
       if(targetTab === 'main') {
-        window.electronAPI.onIsMainTab(true);
+        window.electronAPI.onTabChange(0);
         updateActiveUsers().then((success) => {
           if (success) {
             // 成功した場合にインターバルを設定
@@ -47,51 +42,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // ログタブが選択された場合にデータを取得
       if (targetTab === 'log') {
-        window.electronAPI.onIsMainTab(false);
-        const logListElement = document.getElementById('log-list');
-        toggleModal('カードをタッチしてください...', 5);
-        await waitForCard(5);
-
-        if (isWaitingForCard) {
-          // カードがタッチされなかった場合の処理
-          toggleModal('カードがタッチされませんでした。', 5);
-          isWaitingForCard = false;
-          window.electronAPI.stopWaitingForCard();
-        }
-        isWaitingForCard = true; // カード待機状態にする
-        window.electronAPI.fetchLogs().then((logs) => {
-          window.electronAPI.stopWaitingForCard();
-          console.log('Fetched logs:', logs.length);
-          logListElement.innerHTML = ''; // 既存のログをクリア
-          if (logs.length === 0) {
-            logListElement.textContent = 'ログがありません。';
-          } else {
-            logs.forEach((log) => {
-              const logItem = document.createElement('div');
-              logItem.textContent = `ID: ${log.id}, 学籍番号: ${log.student_number}, 名前: ${log.name_kanji}, 日付: ${log.created_at}`;
-              logListElement.appendChild(logItem);
-            });
-          }
-        }).catch((err) => {
-          console.error('Error fetching logs:', err);
-          logListElement.textContent = 'ログの取得中にエラーが発生しました。';
-        });
+        window.electronAPI.onTabChange(1);
+        fetchAndDisplayLogs(0);
 
       } else if (targetTab === "settings") {
-        window.electronAPI.onIsMainTab(false);
+        window.electronAPI.onTabChange(2);
       }
     });
   });
-
-  function waitForCard(seconds) {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve();
-      }, seconds * 1000); // 秒をミリ秒に変換
-    });
-  }
 
   function updateActiveUsers() {
     // アクティブなユーザーを取得
@@ -184,6 +143,187 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
   }
 
+  async function fetchAndDisplayLogs(page = 0) {
+    if (!logListElement) return;
+    logListElement.innerHTML = '<p>最新のログを取得中...</p>';
+
+    try {
+        const response = await window.electronAPI.fetchLogs(page);
+        renderLogList(response.logs, response.studentName, false, page);
+    } catch (err) {
+        console.error('Error fetching logs:', err);
+        logListElement.innerHTML = `<p style="color: red;">ログの取得に失敗しました: ${err.message}</p>`;
+    }
+  }
+
+  function renderLogList(logs, title = '', hasEditButton = false, page = 0) {
+      setPageToURL(page);
+      if (!logListElement) return;
+
+      if (!logs || logs.length === 0) {
+          logListElement.innerHTML = `<h3>${title}</h3><p>ログはまだありません。</p>`;
+          return;
+      }
+
+      logListElement.innerHTML = `
+        <h3>${title}</h3>
+        <p>ページ: ${page + 1}</p>
+        <button id="prev-page" class="btn btn-small" disabled>←</button>
+        <button id="next-page" class="btn btn-small">→</button>
+        <table class="log-table">
+          <thead>
+            <tr>
+              <th>日時</th>
+              <th>名前 (学籍番号)</th>
+              <th>モード</th>
+              ${hasEditButton ? '<th>操作</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${logs.map(log => {
+              const logDataString = JSON.stringify(log);
+              const timestamp = new Date(log.timestamp).toLocaleString('ja-JP');
+
+              return `
+                <tr class="log-row ${hasEditButton ? 'editable' : ''}" data-log='${logDataString}'>
+                  <td data-label="日時">${timestamp}</td>
+                  <td data-label="名前">${log.name_kanji} (${log.student_number})</td>
+                  <td data-label="モード"><strong>${log.mode.toUpperCase()}</strong></td>
+                  ${hasEditButton
+                    ? `<td data-label="操作"><button class="btn btn-edit-inline">✏</button></td>`
+                    : ''}
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+      const prevPageButton = logListElement.querySelector('#prev-page');
+      const nextPageButton = logListElement.querySelector('#next-page');
+      prevPageButton.disabled = page === 0;
+      nextPageButton.disabled = logs.length < 20;
+      prevPageButton.addEventListener('click', () => {
+        fetchAndDisplayLogs(page - 1);
+      });
+      nextPageButton.addEventListener('click', () => {
+        fetchAndDisplayLogs(page + 1);
+      });
+      if (hasEditButton) {
+          logListElement.querySelectorAll('.btn-edit-inline').forEach(button => {
+              button.addEventListener('click', (e) => {
+                const row = e.target.closest('tr');
+                createInlineEditForm(row);
+              });
+          });
+      }
+  }
+
+  function createInlineEditForm(row) {
+    const existingEditForm = logListElement.querySelector('.edit-form-row');
+    if (existingEditForm) {
+      cancelInlineEdit(existingEditForm);
+    }
+
+    const logDataString = row.getAttribute('data-log');
+    const log = JSON.parse(logDataString);
+
+    const timezoneOffset = new Date(log.timestamp).getTimezoneOffset() * 60000; // ms
+    const localISOTime = new Date(new Date(log.timestamp) - timezoneOffset).toISOString().slice(0, 16);
+
+    const originalHtml = row.innerHTML;
+
+    row.classList.add('edit-form-row');
+    row.innerHTML = `
+      <td data-label="日時">
+        <input
+          type="datetime-local"
+          id="edit-timestamp-select-${log.id}"
+          class="inline-edit-input"
+          value="${localISOTime}">
+      </td>
+      <td data-label="名前">${log.name_kanji} (${log.student_number})</td>
+      <td data-label="モード">
+        <select id="edit-mode-select-${log.id}" class="inline-edit-select">
+          <option value="in" ${log.mode === 'in' ? 'selected' : ''}>IN</option>
+          <option value="out" ${log.mode === 'out' ? 'selected' : ''}>OUT</option>
+          <option value="rest" ${log.mode === 'rest' ? 'selected' : ''}>REST</option>
+        </select>
+      </td>
+      <td data-label="操作">
+        <button class="btn btn-save">保存</button>
+        <button class="btn btn-cancel">ｷｬﾝｾﾙ</button>
+      </td>
+    `;
+
+    row['originalHtml'] = originalHtml;
+
+    row.querySelector('.btn-save').addEventListener('click', async () => {
+        const newMode = row.querySelector(`#edit-mode-select-${log.id}`).value;
+        const newTimestampValue = row.querySelector(`#edit-timestamp-select-${log.id}`).value;
+        const newTimestamp = new Date(newTimestampValue).toISOString();
+
+        const originalDate = new Date(log.timestamp);
+        originalDate.setSeconds(0, 0);
+        const originalTimestampTruncated = originalDate.toISOString();
+        if (newMode === log.mode && newTimestamp === originalTimestampTruncated) {
+            toggleModal('モードも日時も変更されていません。', 3);
+            return;
+        }
+
+        try {
+            row.querySelector('td[data-label="操作"]').innerHTML = '<span>保存中...</span>';
+
+            const result = await window.electronAPI.editLog({
+                logId: log.id,
+                newMode: newMode,
+                newTimestamp: newTimestamp
+            });
+
+            if (result !== false) {
+                response = await window.electronAPI.fetchLogs(getPageFromURL());
+                renderLogList(response.logs, response.studentName, false, getPageFromURL());
+            }
+        } catch (err) {
+            console.error('Error editing log:', err);
+            toggleModal(`編集に失敗しました: ${err.message}`, 5);
+            cancelInlineEdit(row);
+        }
+    });
+
+    row.querySelector('.btn-cancel').addEventListener('click', () => {
+        cancelInlineEdit(row);
+    });
+  }
+
+  function cancelInlineEdit(row) {
+    if (row && row['originalHtml']) {
+        row.innerHTML = row['originalHtml'];
+        row.classList.remove('edit-form-row');
+        row.removeAttribute('originalHtml');
+        const editButton = row.querySelector('.btn-edit-inline');
+        if (editButton) {
+          editButton.addEventListener('click', (e) => {
+            createInlineEditForm(e.target.closest('tr'));
+          });
+        }
+    }
+  }
+
+
+  // (ログタブ用) カードタッチでユーザー別ログが main から送られてきたときのリスナー
+  window.electronAPI.onLogResult((event, success, response) => {
+      const existingEditForm = logListElement.querySelector('.edit-form-row');
+      if (existingEditForm) {
+        cancelInlineEdit(existingEditForm);
+      }
+      if (success) {
+          toggleModal(`${response.logs[0]?.name_kanji || 'ユーザー'}さんのログを表示します`, 3);
+          renderLogList(response.logs, `${response.logs[0]?.name_kanji || '不明'}さんのログ`, true, 0);
+      } else {
+          toggleModal(`エラー: ${response.message} (${response.user || '不明なカード'})`, 5);
+      }
+  });
+
   function getElapsedTime(timestamp) {
     const now = new Date();
     const inTime = new Date(timestamp);
@@ -209,7 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
       modalCloseButton.onclick = null;
     };
 
-    if (modalInterval) {console.log(message, modalInterval);
+    if (modalInterval) {
       clearInterval(modalInterval);
       modalInterval = null;
     }
@@ -500,6 +640,15 @@ document.addEventListener('DOMContentLoaded', () => {
         `, 5);
     }
   });
+
+  function setPageToURL(page) {
+    window.history.pushState(null, '', `?page=${page}`);
+  }
+
+  function getPageFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('page') ? parseInt(params.get('page')) : 0;
+  }
 
   // 初回更新
   updateActiveUsers().then((success) => {

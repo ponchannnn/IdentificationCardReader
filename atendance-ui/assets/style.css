@@ -218,3 +218,82 @@ body {
   .btn:hover {
     background-color: #005bac;
   }
+
+#log-list {
+  flex-grow: 1;
+  overflow-y: auto;
+}
+  /* ログタブのテーブルスタイル */
+.log-table {
+  width: 100%;
+  border-collapse: collapse; /* ボーダーを重ねる */
+  margin-top: 15px;
+  font-size: 0.9em;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.log-table thead tr {
+  background-color: #009879; /* ヘッダー色 (例) */
+  color: #ffffff;
+  text-align: left;
+}
+
+.log-table th,
+.log-table td {
+  padding: 12px 15px;
+  border: 1px solid #ddd; /* 罫線 */
+}
+
+.log-table tbody tr {
+  border-bottom: 1px solid #dddddd;
+}
+
+.log-table tbody tr:nth-of-type(even) {
+  background-color: #f3f3f3; /* 交互に色付け */
+}
+
+.log-table tbody tr:last-of-type {
+  border-bottom: 2px solid #009879;
+}
+
+/* 編集可能な行のホバーエフェクト */
+.log-table tbody tr.editable:hover {
+  background-color: #f1f1f1;
+  cursor: pointer;
+}
+
+/* インライン編集フォームのスタイル */
+.inline-edit-select,
+.inline-edit-input {
+  width: 100%;
+  padding: 5px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 1em;
+}
+
+.inline-edit-input {
+  min-width: 180px; /* 必要に応じて調整 */
+}
+
+.edit-form-row {
+  background-color: #fff9c4 !important; /* 編集中の行をハイライト */
+}
+
+/* 編集・キャンセルボタン */
+.btn-edit-inline {
+  padding: 5px 10px;
+  font-size: 0.8em;
+  background-color: #3498db;
+  color: white;
+}
+.btn-save {
+  padding: 5px 10px;
+  background-color: #2ecc71; /* 緑 */
+  color: white;
+}
+.btn-cancel {
+  padding: 5px 10px;
+  background-color: #e74c3c; /* 赤 */
+  color: white;
+}
